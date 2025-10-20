@@ -109,15 +109,10 @@ export default class RecordsView {
 
     render() {
         const user = this.authService.getCurrentUser();
-        if (!user || user.role === 'Public') {
-            this.container.innerHTML = `
-                <div class="max-w-7xl mx-auto">
-                    <div class="bg-red-50 p-4 rounded-lg">
-                        <p class="text-red-600 font-medium">Access Denied</p>
-                        <p class="text-red-500">You must be logged in as Staff or Admin to access this page.</p>
-                    </div>
-                </div>
-            `;
+        const isPublic = !user || user.role === 'Public';
+
+        if (isPublic) {
+            this.renderPublicView();
             return;
         }
 
@@ -287,6 +282,152 @@ export default class RecordsView {
         } catch (error) {
             this.showMessage('Error', 'Failed to clear data: ' + error.message);
         }
+    }
+
+    renderPublicView() {
+        const records = this.dataService.getRecords();
+        
+        // Group records by type for better organization
+        const groupedRecords = records.reduce((acc, record) => {
+            if (!acc[record.type]) {
+                acc[record.type] = [];
+            }
+            acc[record.type].push(record);
+            return acc;
+        }, {});
+
+        this.container.innerHTML = `
+            <div class="max-w-7xl mx-auto">
+                <div class="bg-blue-50 p-6 rounded-xl mb-8">
+                    <h2 class="text-2xl font-bold text-blue-800 mb-2">Public Records Access</h2>
+                    <p class="text-blue-600">
+                        Welcome to the public records view. Here you can access and view health and climate data for transparency and information purposes.
+                    </p>
+                </div>
+
+                <!-- Filters -->
+                <div class="bg-white p-6 rounded-xl shadow-lg mb-8">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Filter Records</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Record Type</label>
+                            <select id="public-filter-type" class="input-field">
+                                <option value="all">All Types</option>
+                                <option value="Health">Health</option>
+                                <option value="Climate">Climate</option>
+                                <option value="Intervention">Intervention</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="date" id="public-filter-date-start" class="input-field">
+                                <input type="date" id="public-filter-date-end" class="input-field">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                            <select id="public-filter-location" class="input-field">
+                                <option value="all">All Locations</option>
+                                ${[...new Set(records.map(r => r.location.barangay))].map(barangay => 
+                                    `<option value="${barangay}">${barangay}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Records Display -->
+                ${Object.entries(groupedRecords).map(([type, typeRecords]) => `
+                    <div class="bg-white p-6 rounded-xl shadow-lg mb-8 record-section" data-type="${type}">
+                        <h3 class="text-2xl font-semibold text-gray-800 mb-6">
+                            ${type} Records
+                            <span class="text-sm font-normal text-gray-500 ml-2">(${typeRecords.length} records)</span>
+                        </h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${typeRecords.map(record => `
+                                        <tr class="hover:bg-gray-50 record-row" 
+                                            data-date="${record.date}"
+                                            data-location="${record.location.barangay}">
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.category}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                ${record.location.barangay}, ${record.location.city}
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${record.value}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                ${new Date(record.date).toLocaleDateString()}
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${record.source}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        // Set up filter event listeners
+        this.setupPublicFilters();
+    }
+
+    setupPublicFilters() {
+        const typeFilter = document.getElementById('public-filter-type');
+        const dateStartFilter = document.getElementById('public-filter-date-start');
+        const dateEndFilter = document.getElementById('public-filter-date-end');
+        const locationFilter = document.getElementById('public-filter-location');
+
+        const applyFilters = () => {
+            const type = typeFilter.value;
+            const startDate = dateStartFilter.value ? new Date(dateStartFilter.value) : null;
+            const endDate = dateEndFilter.value ? new Date(dateEndFilter.value) : null;
+            const location = locationFilter.value;
+
+            // Show/hide sections based on type
+            document.querySelectorAll('.record-section').forEach(section => {
+                if (type === 'all' || section.dataset.type === type) {
+                    section.style.display = 'block';
+                } else {
+                    section.style.display = 'none';
+                }
+            });
+
+            // Filter individual rows
+            document.querySelectorAll('.record-row').forEach(row => {
+                let show = true;
+                
+                // Date filter
+                if (startDate && endDate) {
+                    const rowDate = new Date(row.dataset.date);
+                    show = show && rowDate >= startDate && rowDate <= endDate;
+                }
+
+                // Location filter
+                if (location !== 'all') {
+                    show = show && row.dataset.location === location;
+                }
+
+                row.style.display = show ? 'table-row' : 'none';
+            });
+        };
+
+        // Add event listeners
+        typeFilter.addEventListener('change', applyFilters);
+        dateStartFilter.addEventListener('change', applyFilters);
+        dateEndFilter.addEventListener('change', applyFilters);
+        locationFilter.addEventListener('change', applyFilters);
     }
 
     renderRecordsTable() {

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "chart.js": "^4.4.0",
+    "chartjs-chart-matrix": "^3.0.0",
     "leaflet": "^1.9.4"
   },
   "devDependencies": {
