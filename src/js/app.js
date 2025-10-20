@@ -1,3 +1,5 @@
+import '../css/main.css';
+import '../css/transitions.css';
 import { authService } from './services/AuthService.js';
 import { dataService } from './services/DataService.js';
 import { Navigation } from './views/Navigation.js';
