@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+
+@layer base {
+    body {
+        font-family: 'Inter', sans-serif;
+        @apply bg-gray-50;
+    }
+}
+
+@layer components {
+    .sidebar {
+        @apply transition-all duration-300 ease-in-out;
+    }
+
+    .nav-item {
+        @apply flex items-center w-full p-3 rounded-xl font-medium transition duration-150;
+    }
+
+    .nav-item-active {
+        @apply bg-indigo-600 shadow-lg text-white;
+    }
+
+    .nav-item-inactive {
+        @apply text-gray-300 hover:bg-gray-700 hover:text-white;
+    }
+
+    .card {
+        @apply bg-white p-6 rounded-xl shadow-lg;
+    }
+
+    .btn-primary {
+        @apply bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150;
+    }
+
+    .btn-secondary {
+        @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-lg transition duration-150;
+    }
+
+    .input-field {
+        @apply mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500;
+    }
+}

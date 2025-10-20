@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HANDA - Health and Climate Risk Management Portal</title>
+    <link rel="stylesheet" href="/src/css/main.css">
+    <link rel="stylesheet" href="/src/css/transitions.css">
+</head>
+<body class="min-h-screen flex bg-gray-50">
+    <!-- Sidebar -->
+    <div id="sidebar" class="sidebar flex-shrink-0 w-64 bg-gray-800 text-white p-4 shadow-2xl z-20">
+        <h1 class="text-2xl font-extrabold mb-8 text-indigo-400 border-b border-indigo-700 pb-2">HANDA</h1>
+        <nav id="nav-container" class="space-y-2">
+            <!-- Navigation items will be dynamically added here -->
+        </nav>
+        <div class="absolute bottom-4 w-56 pr-8">
+            <div id="auth-status" class="text-sm p-3 bg-gray-700 rounded-lg shadow-inner">
+                <!-- Auth status will be dynamically added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <main id="main-content" class="flex-grow p-6 md:p-10 transition-all duration-300 overflow-auto">
+        <!-- Content will be dynamically loaded here -->
+    </main>
+
+    <!-- Modal -->
+    <div id="message-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full">
+            <h3 id="modal-title" class="text-xl font-bold mb-4 text-gray-800"></h3>
+            <p id="modal-body" class="mb-6 text-gray-600"></p>
+            <button id="modal-close-btn" class="btn-primary w-full">Close</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="/src/js/app.js"></script>
+</body>
+</html>
