@@ -36,6 +36,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: List dist contents (diagnostic)
+        run: |
+          echo "Dist size and listing:" 
+          du -sh dist || true
+          echo "--- Files in dist ---"
+          ls -la dist || true
+          echo "--- Files in dist recursively ---"
+          find dist -maxdepth 3 -type f -exec du -h {} + | sort -h || true
+          echo "--- Symlinks in dist ---"
+          find dist -type l -ls || true
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
