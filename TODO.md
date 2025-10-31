@@ -1,0 +1,5 @@
+- [ ] Import ChartMatrix plugin in DashboardView.js
+- [ ] Modify prepareHealthTrendsData to prepare data for all chart types (line, bar, pie, radar, heatmap)
+- [ ] Update initializeCharts method to render the selected chart type
+- [ ] Add event listener to the chart type dropdown to re-render chart on change
+- [ ] Test the different chart types in the dashboard

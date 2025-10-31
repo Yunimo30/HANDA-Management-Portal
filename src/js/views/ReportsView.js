@@ -13,6 +13,7 @@ export default class ReportsView {
         const endDate = form.endDate.value;
         const type = form.type.value;
         const location = form.location.value;
+        const isPublic = !this.authService.getCurrentUser();
 
         try {
             let records = this.dataService.getRecords();
@@ -44,11 +45,33 @@ export default class ReportsView {
                 return;
             }
 
+            // Process records for public view if necessary
+            if (isPublic) {
+                records = records.map(record => ({
+                    ...record,
+                    // Remove or anonymize sensitive information
+                    source: 'Official Health Department Data',
+                    notes: record.notes ? 'Available to authorized personnel only' : '',
+                    metadata: {
+                        ...record.metadata,
+                        createdAt: record.date // Use record date instead of actual creation date
+                    }
+                }));
+            }
+
             // Convert to CSV
             const csv = this.convertToCSV(records);
-            this.downloadCSV(csv, `health_climate_report_${startDate}_to_${endDate}.csv`);
+            const filename = isPublic
+                ? `public_health_climate_report_${startDate}_to_${endDate}.csv`
+                : `health_climate_report_${startDate}_to_${endDate}.csv`;
             
-            this.showMessage('Success', `${records.length} records exported successfully.`);
+            this.downloadCSV(csv, filename);
+            
+            const message = isPublic
+                ? `${records.length} records exported successfully. This report contains public data only.`
+                : `${records.length} records exported successfully.`;
+            
+            this.showMessage('Success', message);
         } catch (error) {
             this.showMessage('Error', error.message);
         }
@@ -142,8 +165,29 @@ export default class ReportsView {
         const locations = this.getUniqueLocations();
         const today = new Date().toISOString().split('T')[0];
 
+        const isPublic = !this.authService.getCurrentUser();
+
         this.container.innerHTML = `
             <div class="max-w-7xl mx-auto">
+                ${isPublic ? `
+                <!-- Public Access Notice -->
+                <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-8 rounded-lg">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-blue-800">Public Access Information</h3>
+                            <div class="mt-2 text-sm text-blue-700">
+                                <p>As part of our commitment to transparency and freedom of information, you can generate and download reports of public health and climate data. The data is anonymized and aggregated for public consumption.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+                
                 <!-- Export Form -->
                 <div class="bg-white p-6 rounded-xl shadow-lg mb-8">
                     <h3 class="text-2xl font-semibold text-gray-800 mb-6">Generate Report</h3>

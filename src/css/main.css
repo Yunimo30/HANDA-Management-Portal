@@ -12,20 +12,20 @@
 }
 
 @layer components {
-    .sidebar {
-        @apply transition-all duration-300 ease-in-out;
-    }
-
     .nav-item {
-        @apply flex items-center w-full p-3 rounded-xl font-medium transition duration-150;
+        @apply inline-flex items-center transition-all duration-150 ease-in-out;
     }
 
-    .nav-item-active {
-        @apply bg-indigo-600 shadow-lg text-white;
+    .logo {
+        @apply flex items-center gap-2 select-none;
     }
 
-    .nav-item-inactive {
-        @apply text-gray-300 hover:bg-gray-700 hover:text-white;
+    .logo-text {
+        @apply text-2xl font-extrabold text-indigo-400 tracking-tight;
+        background: linear-gradient(135deg, #818cf8 0%, #4f46e5 100%);
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
 
     .card {
@@ -42,5 +42,35 @@
 
     .input-field {
         @apply mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500;
+    }
+
+    .animate-fade-in-down {
+        animation: fadeInDown 0.2s ease-out forwards;
+    }
+
+    .animate-fade-out-up {
+        animation: fadeOutUp 0.2s ease-out forwards;
+    }
+}
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeOutUp {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-10px);
     }
 }
