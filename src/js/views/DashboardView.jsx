@@ -466,6 +466,7 @@ export default class DashboardView {
         const healthChartType = document.getElementById('health-chart-type').value;
         const healthTimeRange = parseInt(document.getElementById('health-time-range').value);
         const healthData = this.prepareHealthData(healthTimeRange);
+        console.debug('initializeCharts: healthChartType=', healthChartType, 'healthData.metrics=', healthData.metrics, 'dates=', healthData.dates && healthData.dates.length);
         const healthCtx = document.getElementById('health-chart').getContext('2d');
 
         if (this.healthChart) {
@@ -480,12 +481,19 @@ export default class DashboardView {
             case 'pie':
                 healthChartConfig = this.renderPieChart(healthData, 'Distribution of Health Incidents');
                 break;
+            case 'radar':
+                healthChartConfig = this.renderRadarChart(healthData);
+                break;
             default:
                 healthChartConfig = this.renderLineChart(healthData, 'Health Incidents Over Time');
                 break;
         }
 
-        this.healthChart = new Chart(healthCtx, healthChartConfig);
+        try {
+            this.healthChart = new Chart(healthCtx, healthChartConfig);
+        } catch (err) {
+            console.error('Failed to create health chart:', err, { healthChartType, healthChartConfig });
+        }
 
         // Climate Chart
         const climateChartType = document.getElementById('climate-chart-type').value;
@@ -510,7 +518,11 @@ export default class DashboardView {
                 break;
         }
 
-        this.climateChart = new Chart(climateCtx, climateChartConfig);
+        try {
+            this.climateChart = new Chart(climateCtx, climateChartConfig);
+        } catch (err) {
+            console.error('Failed to create climate chart:', err, { climateChartType, climateChartConfig });
+        }
     }
 
     render() {
