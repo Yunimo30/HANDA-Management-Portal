@@ -1,193 +1,114 @@
-import { Record } from '../models/Record.js';
-
 class DataService {
     constructor() {
-        this.ROOT_KEY = 'health-climate-portal';
         this.records = [];
-        this.loadData();
-
-        // Add sample data if no records exist
-        if (this.records.length === 0) {
-            this.initializeSampleData();
-        }
     }
 
-    initializeSampleData() {
-        const sampleRecords = [
-            {
-                id: 1,
-                type: "Health",
-                location: { city: "Manila", barangay: "Poblacion" },
-                category: "Dengue Cases",
-                value: 15,
-                date: "2025-10-01",
-                source: "City Health Office",
-                notes: "Increase in cases following heavy rainfall",
-                metadata: { createdAt: new Date("2025-10-02").toISOString() }
-            },
-            {
-                id: 2,
-                type: "Climate",
-                location: { city: "Manila", barangay: "Poblacion" },
-                category: "Rainfall (mm)",
-                value: 156.8,
-                date: "2025-10-01",
-                source: "Local Weather Station",
-                notes: "Above average rainfall for October",
-                metadata: { createdAt: new Date("2025-10-02").toISOString() }
-            },
-            {
-                id: 3,
-                type: "Health",
-                location: { city: "Manila", barangay: "San Antonio" },
-                category: "Respiratory Cases",
-                value: 28,
-                date: "2025-10-05",
-                source: "District Hospital",
-                notes: "Increasing trend in respiratory infections",
-                metadata: { createdAt: new Date("2025-10-06").toISOString() }
-            },
-            {
-                id: 4,
-                type: "Climate",
-                location: { city: "Manila", barangay: "San Antonio" },
-                category: "Temperature (°C)",
-                value: 32.5,
-                date: "2025-10-05",
-                source: "Environmental Monitoring Station",
-                notes: "Higher than average temperature",
-                metadata: { createdAt: new Date("2025-10-06").toISOString() }
-            },
-            {
-                id: 5,
-                type: "Intervention",
-                location: { city: "Manila", barangay: "Poblacion" },
-                category: "Fumigation",
-                value: 1,
-                date: "2025-10-08",
-                source: "City Health Department",
-                notes: "City-wide dengue prevention program",
-                metadata: { createdAt: new Date("2025-10-08").toISOString() }
-            },
-            {
-                id: 6,
-                type: "Health",
-                location: { city: "Manila", barangay: "Santa Mesa" },
-                category: "Gastroenteritis Cases",
-                value: 12,
-                date: "2025-10-10",
-                source: "Public Health Center",
-                notes: "Cases linked to flood water exposure",
-                metadata: { createdAt: new Date("2025-10-11").toISOString() }
-            },
-            {
-                id: 7,
-                type: "Climate",
-                location: { city: "Manila", barangay: "Santa Mesa" },
-                category: "Flood Level (cm)",
-                value: 45,
-                date: "2025-10-10",
-                source: "Disaster Risk Management",
-                notes: "Street level flooding reported",
-                metadata: { createdAt: new Date("2025-10-11").toISOString() }
-            },
-            {
-                id: 8,
-                type: "Intervention",
-                location: { city: "Manila", barangay: "San Antonio" },
-                category: "Health Education",
-                value: 1,
-                date: "2025-10-12",
-                source: "Public Health Department",
-                notes: "Community workshop on disease prevention",
-                metadata: { createdAt: new Date("2025-10-12").toISOString() }
-            },
-            {
-                id: 9,
-                type: "Health",
-                location: { city: "Manila", barangay: "Bagong Silang" },
-                category: "Leptospirosis Cases",
-                value: 3,
-                date: "2025-10-15",
-                source: "Regional Hospital",
-                notes: "Cases reported after flooding",
-                metadata: { createdAt: new Date("2025-10-16").toISOString() }
-            },
-            {
-                id: 10,
-                type: "Climate",
-                location: { city: "Manila", barangay: "Bagong Silang" },
-                category: "Humidity (%)",
-                value: 85,
-                date: "2025-10-15",
-                source: "Weather Monitoring Station",
-                notes: "High humidity levels persisting",
-                metadata: { createdAt: new Date("2025-10-16").toISOString() }
-            }
-        ];
-
-        this.records = sampleRecords;
-        this.saveData();
+    async initialize() {
+        await this.loadData();
     }
 
-    loadData() {
+    async loadData() {
         try {
-            const storedData = localStorage.getItem(this.ROOT_KEY);
-            if (storedData) {
-                const data = JSON.parse(storedData);
-                this.records = data.records || [];
+            // Load climate/weather dataset
+            const response = await fetch('/sampledDataset.csv');
+            const csvText = await response.text();
+            const climateRows = this.parseCSV(csvText);
+            const climateRecords = climateRows.map(record => this.createRecordFromCSV(record));
+
+            // Load disease dataset (health records)
+            let diseaseRecords = [];
+            try {
+                const dResp = await fetch('/sampledDiseaseDataset.csv');
+                if (dResp.ok) {
+                    const dText = await dResp.text();
+                    const diseaseRows = this.parseCSV(dText);
+                    diseaseRecords = diseaseRows.map(r => this.createHealthRecordFromDiseaseCSV(r));
+                }
+            } catch (err) {
+                console.warn('No disease dataset found or failed to load:', err);
             }
+
+            // Combine datasets
+            this.records = [...climateRecords, ...diseaseRecords];
+            return true;
         } catch (error) {
             console.error('Error loading data:', error);
-            this.records = [];
+            return false;
         }
     }
 
-    saveData() {
-        try {
-            const dataToStore = {
-                records: this.records
-            };
-            localStorage.setItem(this.ROOT_KEY, JSON.stringify(dataToStore));
-        } catch (error) {
-            console.error('Error saving data:', error);
-        }
+    parseCSV(csvText) {
+        // Split the CSV into lines
+        const lines = csvText.split('\n');
+        const headers = lines[0].split(',');
+
+        return lines.slice(1)
+            .filter(line => line.trim()) // Skip empty lines
+            .map(line => {
+                const values = line.split(',');
+                const record = {};
+                headers.forEach((header, index) => {
+                    if (header === 'date') {
+                        record[header] = values[index];
+                    } else if (['tave', 'tmin', 'tmax', 'heat_index', 'wind_speed', 'rh', 'solar_rad', 'uv_rad'].includes(header)) {
+                        record[header] = parseFloat(values[index]);
+                    } else {
+                        record[header] = values[index];
+                    }
+                });
+                return record;
+            });
     }
 
-    addRecord(recordData) {
-        try {
-            Record.validate(recordData);
-            const record = new Record(recordData);
-            this.records.push(record);
-            this.saveData();
-            return record;
-        } catch (error) {
-            throw new Error(`Failed to add record: ${error.message}`);
-        }
-    }
-
-    updateRecord(id, recordData) {
-        try {
-            Record.validate(recordData);
-            const index = this.records.findIndex(r => r.id === id);
-            if (index === -1) {
-                throw new Error('Record not found');
+    createRecordFromCSV(csvRecord) {
+        // Transform CSV record into our application record format
+        return {
+            id: csvRecord.uuid,
+            type: 'Climate',
+            location: {
+                city: csvRecord.City,
+                barangay: csvRecord.Barangay
+            },
+            metrics: {
+                temperature: {
+                    average: csvRecord.tave,
+                    min: csvRecord.tmin,
+                    max: csvRecord.tmax,
+                    heatIndex: csvRecord.heat_index
+                },
+                wind: {
+                    speed: csvRecord.wind_speed
+                },
+                humidity: csvRecord.rh,
+                radiation: {
+                    solar: csvRecord.solar_rad,
+                    uv: csvRecord.uv_rad
+                }
+            },
+            date: csvRecord.date,
+            source: 'Weather Station',
+            metadata: {
+                createdAt: new Date().toISOString()
             }
-            this.records[index] = { ...this.records[index], ...recordData };
-            this.saveData();
-            return this.records[index];
-        } catch (error) {
-            throw new Error(`Failed to update record: ${error.message}`);
-        }
+        };
     }
 
-    deleteRecord(id) {
-        const index = this.records.findIndex(r => r.id === id);
-        if (index === -1) {
-            throw new Error('Record not found');
-        }
-        this.records.splice(index, 1);
-        this.saveData();
+    createHealthRecordFromDiseaseCSV(csvRecord) {
+        // sampledDiseaseDataset.csv fields: Id,Date,Disease,Cases,Source
+        return {
+            id: csvRecord.Id || csvRecord.id,
+            type: 'Health',
+            category: csvRecord.Disease || csvRecord.disease || 'Unknown Disease',
+            value: Number(csvRecord.Cases || csvRecord.cases || 0),
+            location: {
+                // Disease dataset doesn't include location; use a default placeholder
+                city: csvRecord.City || 'Sample City',
+                barangay: csvRecord.Barangay || 'Citywide'
+            },
+            date: csvRecord.Date || csvRecord.date,
+            source: csvRecord.Source || 'PIDSR',
+            metadata: { importedFrom: 'sampledDiseaseDataset.csv' }
+        };
     }
 
     getRecords(filters = {}) {
@@ -198,9 +119,12 @@ class DataService {
         }
 
         if (filters.dateRange) {
-            filteredRecords = filteredRecords.filter(r => 
-                r.date >= filters.dateRange.start && r.date <= filters.dateRange.end
-            );
+            const startDate = new Date(filters.dateRange.start);
+            const endDate = new Date(filters.dateRange.end);
+            filteredRecords = filteredRecords.filter(r => {
+                const recordDate = new Date(r.date);
+                return recordDate >= startDate && recordDate <= endDate;
+            });
         }
 
         if (filters.location) {

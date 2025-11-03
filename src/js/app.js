@@ -115,7 +115,7 @@ class App {
         }
     }
 
-    start() {
+    async start() {
         // Initialize navigation
         this.navigation.render();
         
@@ -148,13 +148,20 @@ class App {
             modal.classList.add('transition-all', 'duration-300', 'ease-in-out', 'transform');
         }
 
+        // Initialize data service so views receive real data
+        try {
+            await dataService.initialize();
+        } catch (err) {
+            console.warn('DataService initialization failed:', err);
+        }
+
         // Render initial view with animation
         this.renderView('Home');
     }
 }
 
 // Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     const app = new App();
-    app.start();
+    await app.start();
 });
