@@ -1,34 +1,71 @@
+import ClimateDataService from './ClimateDataService.js';
+
 class DataService {
     constructor() {
         this.records = [];
+        // store discovered headers for each CSV
+        this.climateHeaders = [];
+        this.diseaseHeaders = [];
+        // allow manual field mapping if UI wants to set it
+        this.fieldMappings = {
+            Climate: null,
+            Health: null
+        };
+        // instantiate climate service so we can load climate data into it
+        this.climateService = new ClimateDataService();
     }
 
     async initialize() {
         await this.loadData();
     }
 
+    // Public: allow UI to set a mapping from CSV header -> internal field name
+    setFieldMapping(type, mapping) {
+        this.fieldMappings[type] = mapping;
+    }
+
+    getFieldMapping(type) {
+        return this.fieldMappings[type] || null;
+    }
+
+    // Return available columns discovered for a dataset type
+    getAvailableColumns(type) {
+        if (type === 'Climate') return this.climateHeaders;
+        if (type === 'Health') return this.diseaseHeaders;
+        return [];
+    }
+
     async loadData() {
         try {
-            // Load climate/weather dataset
-            const response = await fetch('/sampledDataset.csv');
+            // Load climate dataset
+            const response = await fetch('/climate_recent.csv');
             const csvText = await response.text();
             const climateRows = this.parseCSV(csvText);
-            const climateRecords = climateRows.map(record => this.createRecordFromCSV(record));
+            // store headers discovered
+            this.climateHeaders = climateRows.length > 0 ? Object.keys(climateRows[0]) : [];
+            const climateRecords = climateRows.map(record => this.createClimateRecord(record));
+            // Load into ClimateDataService (flat records expected)
+            try {
+                await this.climateService.loadClimateData(climateRecords);
+            } catch (e) {
+                console.warn('Failed to load climate data into ClimateDataService:', e);
+            }
 
-            // Load disease dataset (health records)
+            // Load disease dataset
             let diseaseRecords = [];
             try {
-                const dResp = await fetch('/sampledDiseaseDataset.csv');
+                const dResp = await fetch('/disease_recent.csv');
                 if (dResp.ok) {
                     const dText = await dResp.text();
                     const diseaseRows = this.parseCSV(dText);
-                    diseaseRecords = diseaseRows.map(r => this.createHealthRecordFromDiseaseCSV(r));
+                    this.diseaseHeaders = diseaseRows.length > 0 ? Object.keys(diseaseRows[0]) : [];
+                    diseaseRecords = diseaseRows.map(r => this.createDiseaseRecord(r));
                 }
             } catch (err) {
                 console.warn('No disease dataset found or failed to load:', err);
             }
 
-            // Combine datasets
+            // Combine
             this.records = [...climateRecords, ...diseaseRecords];
             return true;
         } catch (error) {
@@ -37,78 +74,142 @@ class DataService {
         }
     }
 
+    // Robust CSV line parser that handles quoted fields and commas inside quotes
     parseCSV(csvText) {
-        // Split the CSV into lines
-        const lines = csvText.split('\n');
-        const headers = lines[0].split(',');
+        const lines = csvText.split(/\r?\n/).filter(Boolean);
+        if (lines.length === 0) return [];
+
+        const headers = this._csvLineToArray(lines[0]).map(h => h.trim());
 
         return lines.slice(1)
-            .filter(line => line.trim()) // Skip empty lines
-            .map(line => {
-                const values = line.split(',');
-                const record = {};
-                headers.forEach((header, index) => {
-                    if (header === 'date') {
-                        record[header] = values[index];
-                    } else if (['tave', 'tmin', 'tmax', 'heat_index', 'wind_speed', 'rh', 'solar_rad', 'uv_rad'].includes(header)) {
-                        record[header] = parseFloat(values[index]);
-                    } else {
-                        record[header] = values[index];
+            .map(line => this._csvLineToArray(line))
+            .filter(values => values.length > 0 && !(values.length === 1 && values[0] === ''))
+            .map(values => {
+                const obj = {};
+                headers.forEach((header, i) => {
+                    let v = values[i] !== undefined ? values[i].trim() : '';
+                    // Convert numeric-looking values to numbers
+                    if (v !== '' && !isNaN(v)) {
+                        // but keep leading zeros as strings if desired -- here we convert
+                        v = Number(v);
                     }
+                    obj[header] = v;
                 });
-                return record;
+                return obj;
             });
     }
 
-    createRecordFromCSV(csvRecord) {
-        // Transform CSV record into our application record format
-        return {
-            id: csvRecord.uuid,
-            type: 'Climate',
-            location: {
-                city: csvRecord.City,
-                barangay: csvRecord.Barangay
-            },
-            metrics: {
-                temperature: {
-                    average: csvRecord.tave,
-                    min: csvRecord.tmin,
-                    max: csvRecord.tmax,
-                    heatIndex: csvRecord.heat_index
-                },
-                wind: {
-                    speed: csvRecord.wind_speed
-                },
-                humidity: csvRecord.rh,
-                radiation: {
-                    solar: csvRecord.solar_rad,
-                    uv: csvRecord.uv_rad
+    // Helper: parse a CSV line into array respecting quotes
+    _csvLineToArray(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+                // If next char is also a quote, it's an escaped quote
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i++; // skip next quote
+                } else {
+                    inQuotes = !inQuotes;
                 }
-            },
-            date: csvRecord.date,
-            source: 'Weather Station',
-            metadata: {
-                createdAt: new Date().toISOString()
+                continue;
             }
+            if (ch === ',' && !inQuotes) {
+                result.push(current);
+                current = '';
+                continue;
+            }
+            current += ch;
+        }
+        result.push(current);
+        return result;
+    }
+
+    // Create a Climate record that includes both flat fields (for ClimateDataService) and nested metrics (for existing views)
+    createClimateRecord(csvRecord) {
+        // Normalize keys (case-insensitive) for common headers
+        const get = key => csvRecord[key] ?? csvRecord[key.toLowerCase()] ?? csvRecord[key.toUpperCase()];
+
+        const id = get('uuid') || get('id') || null;
+        const date = get('date') || get('Date') || null;
+        const barangay = get('Barangay') || get('barangay') || get('location') || 'Unknown';
+        const city = get('City') || get('city') || 'Unknown';
+
+        const tave = Number(get('tave') ?? get('TAVE') ?? get('temperature') ?? 0) || 0;
+        const tmin = Number(get('tmin') ?? get('TMIN') ?? 0) || 0;
+        const tmax = Number(get('tmax') ?? get('TMAX') ?? 0) || 0;
+        const heat_index = Number(get('heat_index') ?? get('heatindex') ?? 0) || 0;
+        const wind_speed = Number(get('wind_speed') ?? get('wind') ?? 0) || 0;
+        const rh = Number(get('rh') ?? get('humidity') ?? 0) || 0;
+        const solar_rad = Number(get('solar_rad') ?? get('solar') ?? 0) || 0;
+        const uv_rad = Number(get('uv_rad') ?? get('uv') ?? 0) || 0;
+
+        // Some climate datasets may include soil/rain fields
+        const soil_moisture = Number(get('soil_moisture') ?? get('soilmoisture') ?? 0) || 0;
+        const soil_temperature = Number(get('soil_temperature') ?? get('soiltemp') ?? 0) || 0;
+        const rainfall = Number(get('rainfall') ?? get('rain') ?? 0) || 0;
+
+        return {
+            id: id,
+            type: 'Climate',
+            location: { city, barangay },
+            // Flat fields expected by ClimateDataService
+            date,
+            time: get('time') || null,
+            temperature: tave,
+            tmin,
+            tmax,
+            heat_index,
+            humidity: rh,
+            wind_speed,
+            solar_rad,
+            uv_rad,
+            soil_moisture,
+            soil_temperature,
+            rainfall,
+            // Nested metrics for backwards compatibility with views
+            metrics: {
+                temperature: { average: tave, min: tmin, max: tmax, heatIndex: heat_index },
+                wind: { speed: wind_speed },
+                humidity: rh,
+                radiation: { solar: solar_rad, uv: uv_rad }
+            },
+            source: get('source') || 'Weather Station',
+            metadata: { importedFrom: 'climate_recent.csv' }
         };
     }
 
-    createHealthRecordFromDiseaseCSV(csvRecord) {
-        // sampledDiseaseDataset.csv fields: Id,Date,Disease,Cases,Source
+    // Create a Health/Disease record. Force city to Zamboanga as requested.
+    createDiseaseRecord(csvRecord) {
+        const get = key => csvRecord[key] ?? csvRecord[key.toLowerCase()] ?? csvRecord[key.toUpperCase()];
+        const id = get('Id') || get('ID') || get('id') || null;
+        const date = get('Date') || get('date') || null;
+        const disease = get('Disease') || get('disease') || 'Unknown Disease';
+        const cases = Number(get('Cases') ?? get('cases') ?? 0) || 0;
+        const source = get('Source') || get('source') || 'PIDSR';
+
         return {
-            id: csvRecord.Id || csvRecord.id,
+            id,
             type: 'Health',
-            category: csvRecord.Disease || csvRecord.disease || 'Unknown Disease',
-            value: Number(csvRecord.Cases || csvRecord.cases || 0),
+            category: disease,
+            value: cases,
+            // Force City per user instruction
             location: {
-                // Disease dataset doesn't include location; use a default placeholder
-                city: csvRecord.City || 'Sample City',
-                barangay: csvRecord.Barangay || 'Citywide'
+                city: 'Zamboanga',
+                barangay: get('Barangay') || get('barangay') || 'Citywide'
             },
-            date: csvRecord.Date || csvRecord.date,
-            source: csvRecord.Source || 'PIDSR',
-            metadata: { importedFrom: 'sampledDiseaseDataset.csv' }
+            date,
+            source,
+            metadata: { importedFrom: 'disease_recent.csv' }
         };
+    }
+
+    // Backwards-compatible alias (some code may call createHealthRecordFromDiseaseCSV)
+    createHealthRecordFromDiseaseCSV(csvRecord) {
+        return this.createDiseaseRecord(csvRecord);
     }
 
     getRecords(filters = {}) {
