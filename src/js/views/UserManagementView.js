@@ -136,6 +136,14 @@ export default class UserManagementView {
 
         // Set up event listeners
         document.getElementById('add-user-form').addEventListener('submit', this.handleAddUser.bind(this));
+        
+        // Set up deactivate button listeners
+        document.querySelectorAll('.deactivate-user-btn').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const email = e.target.dataset.email;
+                this.handleDeactivate(email);
+            });
+        });
     }
 
     renderUsersList() {
@@ -179,8 +187,8 @@ export default class UserManagementView {
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     ${user.status === 'Active' ? `
                         <button 
-                            onclick="window.handleDeactivateUser('${user.email}')"
-                            class="text-red-600 hover:text-red-900"
+                            data-email="${user.email}"
+                            class="deactivate-user-btn text-red-600 hover:text-red-900"
                         >
                             Deactivate
                         </button>

@@ -38,7 +38,7 @@ class DataService {
     async loadData() {
         try {
             // Load climate dataset
-            const response = await fetch('/climate_recent.csv');
+            const response = await fetch('/climate_100.csv');
             const csvText = await response.text();
             const climateRows = this.parseCSV(csvText);
             // store headers discovered
@@ -54,7 +54,7 @@ class DataService {
             // Load disease dataset
             let diseaseRecords = [];
             try {
-                const dResp = await fetch('/disease_recent.csv');
+                const dResp = await fetch('/disease_100.csv');
                 if (dResp.ok) {
                     const dText = await dResp.text();
                     const diseaseRows = this.parseCSV(dText);
@@ -178,17 +178,24 @@ class DataService {
                 radiation: { solar: solar_rad, uv: uv_rad }
             },
             source: get('source') || 'Weather Station',
-            metadata: { importedFrom: 'climate_recent.csv' }
+            metadata: { importedFrom: 'climate_100.csv' }
         };
     }
 
-    // Create a Health/Disease record. Force city to Zamboanga as requested.
+    // Create a Health/Disease record with expanded fields
     createDiseaseRecord(csvRecord) {
         const get = key => csvRecord[key] ?? csvRecord[key.toLowerCase()] ?? csvRecord[key.toUpperCase()];
         const id = get('Id') || get('ID') || get('id') || null;
-        const date = get('Date') || get('date') || null;
-        const disease = get('Disease') || get('disease') || 'Unknown Disease';
-        const cases = Number(get('Cases') ?? get('cases') ?? 0) || 0;
+        const rawDate = get('Date') || get('date') || null;
+        // Ensure date is properly formatted (handle mm/dd/yyyy format)
+        const date = rawDate ? rawDate : null;
+        
+        const disease = get('Disease') || get('disease') || get('disease_type') || 'Unknown Disease';
+        const cases = Number(get('Cases') ?? get('cases') ?? get('case_count') ?? 0) || 0;
+        const barangay = get('Barangay') || get('barangay') || get('location') || 'Unknown';
+        const ageGroup = get('Age_Group') || get('age_group') || 'All';
+        const gender = get('Gender') || get('gender') || 'All';
+        const severity = get('Severity') || get('severity') || 'Unknown';
         const source = get('Source') || get('source') || 'PIDSR';
 
         return {
@@ -196,14 +203,13 @@ class DataService {
             type: 'Health',
             category: disease,
             value: cases,
-            // Force City per user instruction
+            date,
             location: {
                 city: 'Zamboanga',
-                barangay: get('Barangay') || get('barangay') || 'Citywide'
+                barangay: barangay || 'Citywide'
             },
-            date,
             source,
-            metadata: { importedFrom: 'disease_recent.csv' }
+            metadata: { importedFrom: 'disease_100.csv', ageGroup, gender, severity }
         };
     }
 
@@ -223,7 +229,9 @@ class DataService {
             const startDate = new Date(filters.dateRange.start);
             const endDate = new Date(filters.dateRange.end);
             filteredRecords = filteredRecords.filter(r => {
-                const recordDate = new Date(r.date);
+                // Handle mm/dd/yyyy format from disease_100.csv
+                const [month, day, year] = r.date.split('/');
+                const recordDate = new Date(year, month - 1, day);
                 return recordDate >= startDate && recordDate <= endDate;
             });
         }

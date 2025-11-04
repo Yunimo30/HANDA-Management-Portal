@@ -1,7 +1,5 @@
 import Chart from 'chart.js/auto';
 import 'chartjs-adapter-date-fns';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
 
 export default class DashboardView {
     constructor({ container, dataService, authService, showMessage }) {
@@ -35,82 +33,77 @@ export default class DashboardView {
     }
 
     prepareHealthData(timeRange = 30) {
-        let records = this.dataService.getRecords().filter(r => r.type === 'Health');
-        
-        // Parse dates and handle mm/dd/yyyy format from disease_100.csv
-        records = records.map(r => ({
-            ...r,
-            parsedDate: new Date(r.date)
-        })).filter(r => !isNaN(r.parsedDate.getTime())); // Filter out invalid dates
+        // Get all health records and parse dates
+        let records = this.dataService.getRecords()
+            .filter(r => r.type === 'Health')
+            .map(r => {
+                const [month, day, year] = r.date.split('/').map(Number);
+                return {
+                    ...r,
+                    parsedDate: new Date(year, month - 1, day)
+                };
+            })
+            .filter(r => !isNaN(r.parsedDate.getTime())); // Filter out invalid dates
         
         // Sort records by date
         records.sort((a, b) => a.parsedDate - b.parsedDate);
         
-        // Find the date range in the actual data
-        const latestDate = records.length > 0 ? records[records.length - 1].parsedDate : new Date();
-        
-        // Apply time range filter relative to the latest date in the dataset
-        if (timeRange !== 'all') {
+        if (timeRange !== 'all' && records.length > 0) {
+            // Find the latest date in the actual data
+            const latestDate = new Date(Math.max(...records.map(r => r.parsedDate.getTime())));
             const cutoffDate = new Date(latestDate);
             cutoffDate.setDate(cutoffDate.getDate() - timeRange);
             records = records.filter(r => r.parsedDate >= cutoffDate);
         }
 
-        // Group records by various dimensions
+        // Initialize data structures
         const byCategory = {};
         const byLocation = {};
         const byDate = {};
         const metrics = new Set();
 
+        // Process records
         records.forEach(record => {
+            // Use original date string for consistency
+            const dateStr = record.date;
+            
             // Category grouping
             if (!byCategory[record.category]) {
                 byCategory[record.category] = 0;
             }
             byCategory[record.category] += Number(record.value);
-
+            
             // Location grouping
             const location = record.location.barangay;
             if (!byLocation[location]) {
                 byLocation[location] = 0;
             }
             byLocation[location] += Number(record.value);
-
+            
             // Date grouping
-            const date = record.date.split('T')[0];
-            if (!byDate[date]) {
-                byDate[date] = {};
+            if (!byDate[dateStr]) {
+                byDate[dateStr] = {};
             }
-            if (!byDate[date][record.category]) {
-                byDate[date][record.category] = 0;
+            if (!byDate[dateStr][record.category]) {
+                byDate[dateStr][record.category] = 0;
             }
-            byDate[date][record.category] += Number(record.value);
-
-            // Collect unique metrics that are valid
-            if (record.category && record.category !== 'undefined' && record.category !== 'Unknown Disease') {
-                metrics.add(record.category);
-            }
+            byDate[dateStr][record.category] += Number(record.value);
+            
+            // Collect unique diseases
+            metrics.add(record.category);
         });
 
-        // Filter out invalid categories and locations
-        Object.keys(byCategory).forEach(key => {
-            if (!key || key === 'undefined' || key === 'Unknown Disease' || byCategory[key] === 0) {
-                delete byCategory[key];
-            }
-        });
-
-        Object.keys(byLocation).forEach(key => {
-            if (!key || key === 'undefined' || key === 'Unknown' || byLocation[key] === 0) {
-                delete byLocation[key];
-            }
-        });
-
+        // Return processed data
         return {
             byCategory,
             byLocation,
             byDate,
             metrics: Array.from(metrics),
-            dates: Object.keys(byDate).sort()
+            dates: Object.keys(byDate).sort((a, b) => {
+                const [aMonth, aDay, aYear] = a.split('/').map(Number);
+                const [bMonth, bDay, bYear] = b.split('/').map(Number);
+                return new Date(aYear, aMonth - 1, aDay) - new Date(bYear, bMonth - 1, bDay);
+            })
         };
     }
 
@@ -145,14 +138,10 @@ export default class DashboardView {
             const color = this.getColors(data.metrics.length)[index];
             return {
                 label: metric,
-                data: data.dates.map(date => {
-                    // Handle mm/dd/yyyy format
-                    const [month, day, year] = date.split('/');
-                    return {
-                        x: new Date(year, month - 1, day),
-                        y: data.byDate[date][metric] || 0
-                    };
-                }),
+                data: data.dates.map(date => ({
+                    x: new Date(date),
+                    y: data.byDate[date][metric] || 0
+                })),
                 borderColor: color,
                 backgroundColor: color + '20',
                 tension: 0.4,
@@ -163,7 +152,6 @@ export default class DashboardView {
         return {
             type: 'line',
             data: {
-                labels: data.dates.map(d => new Date(d)),
                 datasets: datasets
             },
             options: {
@@ -215,9 +203,11 @@ export default class DashboardView {
     }
 
     renderBarChart(data) {
+        // Get top 10 diseases by case count for better readability
         const categories = Object.keys(data.byCategory)
+            .filter(cat => data.byCategory[cat] > 0) // Only include diseases with cases
             .sort((a, b) => data.byCategory[b] - data.byCategory[a])
-            .slice(0, 10); // Show top 10 diseases by case count
+            .slice(0, 10);
         const values = categories.map(cat => data.byCategory[cat]);
         const colors = this.getColors(categories.length);
 
@@ -233,9 +223,9 @@ export default class DashboardView {
                 }]
             },
             options: {
+                indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
-                indexAxis: 'y',
                 plugins: {
                     title: { 
                         display: true, 
@@ -272,9 +262,9 @@ export default class DashboardView {
     }
 
     renderPieChart(data) {
-        // Filter out undefined or unknown categories and get top 8 diseases
+        // Get top 8 diseases with non-zero cases
         const categories = Object.keys(data.byCategory)
-            .filter(cat => cat && cat !== 'undefined' && cat !== 'Unknown Disease' && data.byCategory[cat] > 0)
+            .filter(cat => data.byCategory[cat] > 0)
             .sort((a, b) => data.byCategory[b] - data.byCategory[a])
             .slice(0, 8);
         const values = categories.map(cat => data.byCategory[cat]);
@@ -297,33 +287,29 @@ export default class DashboardView {
                 plugins: {
                     title: { 
                         display: true, 
-                        text: 'Top 8 Diseases Distribution',
+                        text: 'Distribution of Active Disease Cases',
                         font: { size: 16 }
                     },
                     legend: { 
                         position: 'right',
                         labels: {
                             font: { size: 11 },
+                            boxWidth: 15,
                             generateLabels: (chart) => {
-                                const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
-                                return labels.map(label => {
-                                    const dataset = chart.data.datasets[label.datasetIndex];
-                                    const value = dataset.data[label.index];
+                                const dataset = chart.data.datasets[0];
+                                return chart.data.labels.map((label, index) => {
+                                    const value = dataset.data[index];
                                     const total = dataset.data.reduce((a, b) => a + b, 0);
                                     const percentage = ((value / total) * 100).toFixed(1);
-                                    label.text = `${label.text} (${percentage}%)`;
-                                    return label;
+                                    return {
+                                        text: `${label} (${value} cases, ${percentage}%)`,
+                                        fillStyle: dataset.backgroundColor[index],
+                                        strokeStyle: dataset.borderColor[index],
+                                        lineWidth: 1,
+                                        hidden: false,
+                                        index: index
+                                    };
                                 });
-                            }
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (context) => {
-                                const value = context.parsed;
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((value / total) * 100).toFixed(1);
-                                return `${context.label}: ${value} cases (${percentage}%)`;
                             }
                         }
                     }
@@ -333,26 +319,26 @@ export default class DashboardView {
     }
 
     renderRadarChart(data) {
-        // Get top 5 locations by total cases, excluding undefined/unknown
+        // Get locations with actual cases
         const locations = Object.keys(data.byLocation)
-            .filter(loc => loc && loc !== 'undefined' && loc !== 'Unknown' && data.byLocation[loc] > 0)
+            .filter(loc => data.byLocation[loc] > 0)
             .sort((a, b) => data.byLocation[b] - data.byLocation[a])
             .slice(0, 5);
         
-        // Get top 6 diseases by total cases, excluding undefined/unknown
+        // Get diseases with actual cases
         const categories = Object.keys(data.byCategory)
-            .filter(cat => cat && cat !== 'undefined' && cat !== 'Unknown Disease' && data.byCategory[cat] > 0)
+            .filter(cat => data.byCategory[cat] > 0)
             .sort((a, b) => data.byCategory[b] - data.byCategory[a])
             .slice(0, 6);
         
         const datasets = locations.map((location, index) => {
             const color = this.getColors(locations.length)[index];
             return {
-                label: location,
+                label: location || 'Unspecified Location',
                 data: categories.map(cat => {
                     const locationRecords = this.dataService.getRecords()
                         .filter(r => r.type === 'Health' && 
-                                r.location.barangay === location &&
+                                r.location?.barangay === location &&
                                 r.category === cat);
                     return locationRecords.reduce((sum, r) => sum + Number(r.value), 0);
                 }),
@@ -370,173 +356,57 @@ export default class DashboardView {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                    title: { display: true, text: 'Health Metrics by Location' }
-                },
                 scales: {
                     r: {
-                        beginAtZero: true
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        },
+                        pointLabels: {
+                            font: {
+                                size: 11
+                            },
+                            callback: function(label) {
+                                return label.length > 20 ? label.substring(0, 17) + '...' : label;
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Disease Cases by Location',
+                        font: { size: 16 }
+                    },
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            font: { size: 11 },
+                            boxWidth: 15,
+                            generateLabels: (chart) => {
+                                return chart.data.datasets.map(dataset => {
+                                    const total = dataset.data.reduce((a, b) => a + b, 0);
+                                    return {
+                                        text: `${dataset.label} (${total} total cases)`,
+                                        fillStyle: dataset.backgroundColor,
+                                        strokeStyle: dataset.borderColor,
+                                        lineWidth: 1,
+                                        hidden: false
+                                    };
+                                });
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                return ` ${context.dataset.label}: ${context.raw} cases`;
+                            }
+                        }
                     }
                 }
             }
         };
-    }
-
-    calculateRiskIndex(location, metric, timeRange) {
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - timeRange);
-        const records = this.dataService.getRecords().filter(r => 
-            r.location.barangay === location && 
-            new Date(r.date) >= cutoffDate
-        );
-
-        let healthRisk = 0;
-        let climateRisk = 0;
-
-        if (metric === 'health' || metric === 'combined') {
-            const healthRecords = records.filter(r => r.type === 'Health');
-            // Calculate health risk based on number of cases and severity
-            healthRisk = healthRecords.reduce((risk, record) => {
-                const severity = this.getHealthSeverity(record.category);
-                return risk + (Number(record.value) * severity);
-            }, 0) / (healthRecords.length || 1);
-        }
-
-        if (metric === 'climate' || metric === 'combined') {
-            const climateRecords = records.filter(r => r.type === 'Climate');
-            // Calculate climate risk based on environmental factors
-            climateRisk = climateRecords.reduce((risk, record) => {
-                const severity = this.getClimateSeverity(record.category, record.value);
-                return risk + severity;
-            }, 0) / (climateRecords.length || 1);
-        }
-
-        if (metric === 'combined') {
-            return (healthRisk + climateRisk) / 2;
-        }
-        return metric === 'health' ? healthRisk : climateRisk;
-    }
-
-    getHealthSeverity(category) {
-        // Define severity weights for different health categories
-        const severityMap = {
-            'Dengue Cases': 0.8,
-            'Respiratory Cases': 0.6,
-            'Gastroenteritis Cases': 0.5,
-            'Leptospirosis Cases': 0.7
-        };
-        return severityMap[category] || 0.5;
-    }
-
-    getClimateSeverity(category, value) {
-        // Define threshold-based severity for climate metrics
-        switch (category) {
-            case 'Rainfall (mm)':
-                if (value > 150) return 0.9;
-                if (value > 100) return 0.6;
-                if (value > 50) return 0.3;
-                return 0.1;
-            case 'Temperature (°C)':
-                if (value > 35) return 0.8;
-                if (value > 30) return 0.5;
-                if (value > 25) return 0.3;
-                return 0.1;
-            case 'Humidity (%)':
-                if (value > 85) return 0.7;
-                if (value > 70) return 0.4;
-                return 0.2;
-            case 'Flood Level (cm)':
-                if (value > 100) return 1.0;
-                if (value > 50) return 0.7;
-                if (value > 20) return 0.4;
-                return 0.2;
-            default:
-                return 0.5;
-        }
-    }
-
-    getRiskColor(riskIndex) {
-        if (riskIndex >= 0.7) return '#EF4444'; // red-500
-        if (riskIndex >= 0.4) return '#F59E0B'; // yellow-500
-        return '#10B981'; // green-500
-    }
-
-    initializeRiskMap() {
-        // Initialize the map if it doesn't exist
-        if (!this.riskMap) {
-            this.riskMap = L.map('risk-map').setView([14.6091, 121.0223], 12); // Manila coordinates
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(this.riskMap);
-        }
-
-        // Get current selections
-        const metric = document.getElementById('risk-map-metric').value;
-        const timeRange = parseInt(document.getElementById('risk-map-timeframe').value);
-
-        // Clear existing markers
-        if (this.riskMarkers) {
-            this.riskMarkers.forEach(marker => marker.remove());
-        }
-        this.riskMarkers = [];
-
-        // Get unique locations
-        const locations = [...new Set(this.dataService.getRecords().map(r => r.location.barangay))];
-
-        // Add markers for each location
-        locations.forEach(location => {
-            const riskIndex = this.calculateRiskIndex(location, metric, timeRange);
-            const color = this.getRiskColor(riskIndex);
-
-            // Create circular marker
-            const marker = L.circleMarker([
-                14.6091 + (Math.random() - 0.5) * 0.05, // Random offset for demo
-                121.0223 + (Math.random() - 0.5) * 0.05  // Random offset for demo
-            ], {
-                radius: 10,
-                fillColor: color,
-                color: '#fff',
-                weight: 1,
-                opacity: 1,
-                fillOpacity: 0.8
-            }).addTo(this.riskMap);
-
-            // Add popup
-            marker.bindPopup(this.createRiskPopup(location, riskIndex, metric));
-            this.riskMarkers.push(marker);
-        });
-    }
-
-    createRiskPopup(location, riskIndex, metric) {
-        const riskLevel = riskIndex >= 0.7 ? 'High' : riskIndex >= 0.4 ? 'Medium' : 'Low';
-        const percentage = Math.round(riskIndex * 100);
-        
-        return `
-            <div class="p-2">
-                <h4 class="font-bold">${location}</h4>
-                <p class="text-sm mt-1">Risk Level: <span class="font-semibold">${riskLevel}</span></p>
-                <p class="text-sm">Risk Index: <span class="font-semibold">${percentage}%</span></p>
-                <div class="mt-2 text-xs">
-                    ${this.getRiskDetails(location, metric)}
-                </div>
-            </div>
-        `;
-    }
-
-    getRiskDetails(location, metric) {
-        const records = this.dataService.getRecords()
-            .filter(r => r.location.barangay === location)
-            .slice(-5);
-
-        return `
-            <p class="font-semibold mb-1">Recent Incidents:</p>
-            ${records.map(r => `
-                <div class="mb-1">
-                    <span class="text-gray-600">${r.category}:</span>
-                    ${r.value} (${new Date(r.date).toLocaleDateString()})
-                </div>
-            `).join('')}
-        `;
     }
 
     initializeCharts() {
@@ -612,10 +482,10 @@ export default class DashboardView {
                                     <option value="radar">Multi-metric Analysis</option>
                                 </select>
                                 <select id="health-time-range" class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <option value="7">Past Week</option>
-                                    <option value="30" selected>Past Month</option>
-                                    <option value="90">Past Quarter</option>
-                                    <option value="all">All Records</option>
+                                    <option value="7">Last 7 Days of Data</option>
+                                    <option value="30" selected>Last 30 Days of Data</option>
+                                    <option value="90">Last 90 Days of Data</option>
+                                    <option value="all">Full 2022 Dataset</option>
                                 </select>
                             </div>
                         </div>
@@ -629,46 +499,6 @@ export default class DashboardView {
                         <h3 class="text-2xl font-semibold text-gray-800 mb-4">Climate Data</h3>
                         <div id="climate-chart" class="h-80 bg-gray-50 rounded-lg flex items-center justify-center">
                             <p class="text-gray-500">Climate data visualization will be implemented here</p>
-                        </div>
-                    </div>
-
-                    <!-- Risk Map -->
-                    <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-2xl font-semibold text-gray-800">Risk Map</h3>
-                            <div class="flex space-x-2">
-                                <select id="risk-map-metric" class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <option value="health">Health Risk Index</option>
-                                    <option value="climate">Climate Risk Index</option>
-                                    <option value="combined">Combined Risk Index</option>
-                                </select>
-                                <select id="risk-map-timeframe" class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                                    <option value="30">Last 30 Days</option>
-                                    <option value="90">Last 3 Months</option>
-                                    <option value="180">Last 6 Months</option>
-                                    <option value="365">Last Year</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div id="risk-map" class="h-96 rounded-lg"></div>
-                        <div class="mt-4 flex items-center justify-between">
-                            <div class="flex items-center space-x-4">
-                                <div class="flex items-center">
-                                    <div class="w-4 h-4 rounded bg-green-500"></div>
-                                    <span class="ml-2 text-sm">Low Risk</span>
-                                </div>
-                                <div class="flex items-center">
-                                    <div class="w-4 h-4 rounded bg-yellow-500"></div>
-                                    <span class="ml-2 text-sm">Medium Risk</span>
-                                </div>
-                                <div class="flex items-center">
-                                    <div class="w-4 h-4 rounded bg-red-500"></div>
-                                    <span class="ml-2 text-sm">High Risk</span>
-                                </div>
-                            </div>
-                            <button id="risk-map-reset" class="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">
-                                Reset View
-                            </button>
                         </div>
                     </div>
 
@@ -694,24 +524,6 @@ export default class DashboardView {
 
         // Initialize charts
         this.initializeCharts();
-
-        // Initialize risk map
-        this.initializeRiskMap();
-
-        // Set up risk map control listeners
-        const riskMapMetric = document.getElementById('risk-map-metric');
-        const riskMapTimeframe = document.getElementById('risk-map-timeframe');
-        const riskMapReset = document.getElementById('risk-map-reset');
-
-        if (riskMapMetric && riskMapTimeframe && riskMapReset) {
-            riskMapMetric.addEventListener('change', () => this.initializeRiskMap());
-            riskMapTimeframe.addEventListener('change', () => this.initializeRiskMap());
-            riskMapReset.addEventListener('click', () => {
-                if (this.riskMap) {
-                    this.riskMap.setView([14.6091, 121.0223], 12);
-                }
-            });
-        }
     }
 
     renderRecentActivity() {

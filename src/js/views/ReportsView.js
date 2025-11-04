@@ -1,3 +1,7 @@
+import Chart from 'chart.js/auto';
+import 'chartjs-adapter-date-fns';
+import { enUS } from 'date-fns/locale';
+
 export default class ReportsView {
     constructor({ container, dataService, authService, showMessage }) {
         this.container = container;
@@ -143,6 +147,64 @@ export default class ReportsView {
         }
     }
 
+    prepareHealthTrendsData(records) {
+        // Group records by disease and date
+        const diseaseData = {};
+        records
+            .filter(r => r.type === 'Health')
+            .forEach(record => {
+                // Handle mm/dd/yyyy format from disease_100.csv
+                const [month, day, year] = record.date.split('/');
+                const dateObj = new Date(year, month - 1, day);
+                
+                const disease = record.category;
+                if (!disease || disease === 'undefined' || disease === 'Unknown Disease') return;
+                
+                if (!diseaseData[disease]) {
+                    diseaseData[disease] = {};
+                }
+                
+                const dateKey = dateObj.toISOString().split('T')[0];
+                if (!diseaseData[disease][dateKey]) {
+                    diseaseData[disease][dateKey] = 0;
+                }
+                diseaseData[disease][dateKey] += record.value;
+            });
+
+        // Convert to Chart.js format
+        const datasets = Object.keys(diseaseData)
+            .filter(disease => Object.values(diseaseData[disease]).some(value => value > 0))
+            .map((disease, index) => {
+                const data = [];
+                const dates = Object.keys(diseaseData[disease]).sort();
+                dates.forEach(date => {
+                    data.push({
+                        x: new Date(date),
+                        y: diseaseData[disease][date]
+                    });
+                });
+
+                // Generate a color based on index
+                const hue = (index * 137.5) % 360;
+                const color = `hsl(${hue}, 70%, 50%)`;
+
+                return {
+                    label: disease,
+                    data: data,
+                    borderColor: color,
+                    backgroundColor: color + '33',
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                };
+            });
+
+        return {
+            labels: [...new Set(Object.values(diseaseData).flatMap(d => Object.keys(d)))].sort(),
+            datasets
+        };
+    }
+
     downloadCSV(csv, filename) {
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
@@ -229,6 +291,14 @@ export default class ReportsView {
                     </form>
                 </div>
 
+                <!-- Health Trends Chart -->
+                <div class="bg-white p-6 rounded-xl shadow-lg mb-8">
+                    <h3 class="text-2xl font-semibold text-gray-800 mb-6">Health Trends Analysis</h3>
+                    <div class="w-full h-[400px] relative">
+                        <canvas id="healthTrendsChart"></canvas>
+                    </div>
+                </div>
+
                 <!-- Data Preview -->
                 <div class="bg-white p-6 rounded-xl shadow-lg">
                     <h3 class="text-2xl font-semibold text-gray-800 mb-6">Available Data Overview</h3>
@@ -239,6 +309,64 @@ export default class ReportsView {
 
         // Set up event listeners
         document.getElementById('export-form').addEventListener('submit', this.handleExport.bind(this));
+        
+        // Initialize health trends chart
+        const ctx = document.getElementById('healthTrendsChart').getContext('2d');
+        const healthData = this.prepareHealthTrendsData(this.dataService.getRecords());
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: healthData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Disease Cases Over Time'
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        adapters: {
+                            date: {
+                                locale: enUS
+                            }
+                        },
+                        time: {
+                            unit: 'day',
+                            displayFormats: {
+                                day: 'MMM d, yyyy'
+                            },
+                            tooltipFormat: 'PPP'
+                        },
+                        title: {
+                            display: true,
+                            text: 'Date'
+                        },
+                        grid: {
+                            display: false
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Cases'
+                        },
+                        ticks: {
+                            precision: 0,
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
     }
 
     renderDataOverview() {

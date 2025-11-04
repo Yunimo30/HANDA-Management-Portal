@@ -64,7 +64,16 @@ class App {
             mainContent.style.transform = 'translateY(0)';
 
             // Load the new view
-            const module = await import(`./views/${viewName}View.js`);
+            const viewModules = {
+                'Home': () => import('./views/HomeView.js'),
+                'Dashboard': () => import('./views/DashboardView.js'),
+                'Login': () => import('./views/LoginView.js'),
+                'Records': () => import('./views/RecordsView.js'),
+                'Reports': () => import('./views/ReportsView.js'),
+                'UserManagement': () => import('./views/UserManagementView.js')
+            };
+
+            const module = await viewModules[viewName]();
             const ViewClass = module.default;
             
             const view = new ViewClass({
